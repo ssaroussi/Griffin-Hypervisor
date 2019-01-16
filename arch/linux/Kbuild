@@ -1,0 +1,4 @@
+EXTRA_FLAGS = -Wall -g
+
+obj-m += griffin.o
+griffin-objs := util.o vmx.o griffinjacker.o
