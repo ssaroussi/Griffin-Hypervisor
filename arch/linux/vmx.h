@@ -4,7 +4,6 @@
 #include <linux/module.h>
 #include <linux/tboot.h>
 
-
 #include "util.h"
 
 __init int enable_vmx(void *shit);
