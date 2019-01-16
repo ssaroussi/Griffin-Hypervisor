@@ -2,6 +2,8 @@
 #include <asm/virtext.h>
 #include <linux/cpumask.h>
 #include <linux/module.h>
+#include <linux/tboot.h>
+
 
 #include "util.h"
 
