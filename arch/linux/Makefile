@@ -12,5 +12,5 @@ fmt:
 		xargs clang-format -style=file -i
 
 install: kbuild
-	-rmmod $(MODULE_NAME) # Will continue even after a failure #
-	insmod $(addsuffix .ko,$(MODULE_NAME))
+	-exec sudo -- rmmod $(MODULE_NAME) # Will continue even after a failure #
+	exec sudo -- insmod $(addsuffix .ko,$(MODULE_NAME))
