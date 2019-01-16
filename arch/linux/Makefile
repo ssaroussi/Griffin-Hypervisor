@@ -11,6 +11,6 @@ fmt:
 	find . -name "*.c" -o -name "*.h" | \
 		xargs clang-format -style=file -i
 
-install:
+install: kbuild
 	-rmmod $(MODULE_NAME) # Will continue even after a failure #
 	insmod $(addsuffix .ko,$(MODULE_NAME))
