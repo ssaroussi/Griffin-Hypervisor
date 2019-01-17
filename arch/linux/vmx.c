@@ -33,7 +33,7 @@ __init int init_vmx(void) {
     return -EIO;
 
   /* Check it's possible to syscall & sysret */
-  if (!vmx_capability.has_load_efer) {
+  if (!_vmx_capability.has_load_efer) {
     glog(KERN_ERR, "RFER register modification is required");
     return -EIO;
   }
