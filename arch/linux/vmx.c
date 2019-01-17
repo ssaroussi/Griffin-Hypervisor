@@ -19,6 +19,25 @@ __init int init_vmx(void) {
     return -EIO;
   }
 
+  if (!cpu_has_vmx_vpid()) {
+    glog(KERN_ERR, "CPU does not support required feature: 'vpid'");
+    return -EIO;
+  }
+
+  if (!cpu_has_vmx_ept()) {
+    glog(KERN_ERR, "CPU does not support required feature: 'ept'");
+    return -EIO;
+  }
+
+  if (setup_vmcs_config(&vmcs_config) < 0)
+    return -EIO;
+
+  /* Check it's possible to syscall & sysret */
+  if (!vmx_capability.has_load_efer) {
+    glog(KERN_ERR, "RFER register modification is required");
+    return -EIO;
+  }
+
   /* Allocate vmxon_regions */
   for_each_possible_cpu(lcpu) {
     struct vmcs *vmxon_reg;
@@ -219,4 +238,12 @@ __init bool allow_1_setting(u32 msr, u32 ctl) {
 
   rdmsr(msr, vmx_msr_low, vmx_msr_high);
   return vmx_msr_high & ctl;
+}
+
+inline bool cpu_has_vmx_vpid(void) {
+  return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_VPID;
+}
+
+inline bool cpu_has_vmx_ept(void) {
+  return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_EPT;
 }

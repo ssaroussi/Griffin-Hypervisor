@@ -38,3 +38,5 @@ int adjust_vmx_controls(u32 ctl_min, u32 ctl_opt, u32 msr, u32 *result);
 __init bool allow_1_setting(u32 msr, u32 ctl);
 inline void __vmxon(u64 addr);
 extern struct vmx_capability _vmx_capability;
+inline bool cpu_has_vmx_vpid(void);
+inline bool cpu_has_vmx_ept(void);
