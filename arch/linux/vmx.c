@@ -8,7 +8,7 @@ static DEFINE_SPINLOCK(vmx_vpid_lock);
 static LIST_HEAD(vcpus);
 
 static vmcs_config_t vmcs_config;
-vmx_capability_t _vmx_capability;
+vmx_capability_t vmx_capability;
 
 static inline bool cpu_has_vmx_ept(void) {
   return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_EPT;
@@ -47,7 +47,7 @@ __init int init_vmx(void) {
   }
 
   /* Check it's possible to syscall & sysret */
-  if (!_vmx_capability.has_load_efer) {
+  if (!vmx_capability.has_load_efer) {
     glog(KERN_ERR, "RFER register modification is required");
     return -EIO;
   }
@@ -243,7 +243,7 @@ static unsigned long segment_base(u16 selector) {
   v = get_desc_base(d);
 #ifdef CONFIG_X86_64
   if (d->s == 0 && (d->type == 2 || d->type == 9 || d->type == 11))
-    v |= (unsigned long) ((ldt_desc *)d)->base3 << 32;
+    v |= (unsigned long)((ldt_desc *)d)->base3 << 32;
 #endif
   return v;
 }
@@ -317,41 +317,39 @@ static inline void __invept(int ext, u64 eptp, gpa_t gpa) {
                : "cc", "memory");
 }
 
-static inline void __invvpid(int ext, u16 vpid, gva_t gva)
-{
-    struct {
-	u64 vpid : 16;
-	u64 rsvd : 48;
-	u64 gva;
-    } operand = { vpid, 0, gva };
+static inline void __invvpid(int ext, u16 vpid, gva_t gva) {
+  struct {
+    u64 vpid : 16;
+    u64 rsvd : 48;
+    u64 gva;
+  } operand = {vpid, 0, gva};
 
-    asm volatile (ASM_VMX_INVVPID
-		  /* CF==1 or ZF==1 --> rc = -1 */
-		  "; ja 1f ; ud2 ; 1:"
-		  : : "a"(&operand), "c"(ext) : "cc", "memory");
+  asm volatile(ASM_VMX_INVVPID
+               /* CF==1 or ZF==1 --> rc = -1 */
+               "; ja 1f ; ud2 ; 1:"
+               :
+               : "a"(&operand), "c"(ext)
+               : "cc", "memory");
 }
 
-static inline void vpid_sync_vcpu_single(u16 vpid)
-{
-	if (vpid == 0)
-		return;
+static inline void vpid_sync_vcpu_single(u16 vpid) {
+  if (vpid == 0)
+    return;
 
-	if (cpu_has_vmx_invvpid_single())
-		__invvpid(VMX_VPID_EXTENT_SINGLE_CONTEXT, vpid, 0);
+  if (cpu_has_vmx_invvpid_single())
+    __invvpid(VMX_VPID_EXTENT_SINGLE_CONTEXT, vpid, 0);
 }
 
-static inline void vpid_sync_vcpu_global(void)
-{
-	if (cpu_has_vmx_invvpid_global())
-		__invvpid(VMX_VPID_EXTENT_ALL_CONTEXT, 0, 0);
+static inline void vpid_sync_vcpu_global(void) {
+  if (cpu_has_vmx_invvpid_global())
+    __invvpid(VMX_VPID_EXTENT_ALL_CONTEXT, 0, 0);
 }
 
-static inline void vpid_sync_context(u16 vpid)
-{
-	if (cpu_has_vmx_invvpid_single())
-		vpid_sync_vcpu_single(vpid);
-	else
-		vpid_sync_vcpu_global();
+static inline void vpid_sync_context(u16 vpid) {
+  if (cpu_has_vmx_invvpid_single())
+    vpid_sync_vcpu_single(vpid);
+  else
+    vpid_sync_vcpu_global();
 }
 
 static inline void ept_sync_global(void) {
@@ -398,8 +396,7 @@ static void vmx_get_cpu(vmx_vcpu_t *vcpu) {
 
 static void vmx_put_cpu(vmx_vcpu_t *vcpu) { put_cpu(); }
 
-static void vmx_setup_registers(vmx_vcpu_t *vcpu,
-                                vmx_state_t *conf) {
+static void vmx_setup_registers(vmx_vcpu_t *vcpu, vmx_state_t *conf) {
   vcpu->regs[VCPU_REGS_RAX] = conf->rax;
   vcpu->regs[VCPU_REGS_RBX] = conf->rbx;
   vcpu->regs[VCPU_REGS_RCX] = conf->rcx;
@@ -508,7 +505,7 @@ __init int setup_vmcs_config(vmcs_config_t *vmcs_conf) {
     _cpu_based_exec_control &=
         ~(CPU_BASED_CR3_LOAD_EXITING | CPU_BASED_CR3_STORE_EXITING |
           CPU_BASED_INVLPG_EXITING);
-    rdmsr(MSR_IA32_VMX_EPT_VPID_CAP, _vmx_capability.ept, _vmx_capability.vpid);
+    rdmsr(MSR_IA32_VMX_EPT_VPID_CAP, vmx_capability.ept, vmx_capability.vpid);
   }
 
   min = 0;
@@ -554,7 +551,7 @@ __init int setup_vmcs_config(vmcs_config_t *vmcs_conf) {
   vmcs_conf->vmexit_ctrl = _vmexit_control;
   vmcs_conf->vmentry_ctrl = _vmentry_control;
 
-  _vmx_capability.has_load_efer =
+  vmx_capability.has_load_efer =
       allow_1_setting(MSR_IA32_VMX_ENTRY_CTLS, VM_ENTRY_LOAD_IA32_EFER) &&
       allow_1_setting(MSR_IA32_VMX_EXIT_CTLS, VM_EXIT_LOAD_IA32_EFER);
 

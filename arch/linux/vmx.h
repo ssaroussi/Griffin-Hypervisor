@@ -1,13 +1,13 @@
 #include <asm/desc.h>
+#include <asm/desc_defs.h>
 #include <asm/paravirt.h>
 #include <asm/virtext.h>
 #include <linux/cpumask.h>
 #include <linux/gfp.h>
+#include <linux/kvm_types.h>
 #include <linux/mmu_notifier.h>
 #include <linux/module.h>
 #include <linux/tboot.h>
-#include <asm/desc_defs.h>
-#include <linux/kvm_types.h>
 
 #include "util.h"
 
