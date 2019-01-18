@@ -55,7 +55,6 @@ __init int init_vmx(void) {
   /* Allocate vmxon_regions */
   for_each_possible_cpu(lcpu) {
     vmcs_t *vmxon_reg = __vmx_alloc_vmcs(lcpu);
-
     if (!vmxon_reg) {
       return -ENOMEM;
     }

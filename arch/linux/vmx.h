@@ -127,3 +127,4 @@ extern vmx_capability_t vmx_capability;
 
 vmcs_t *__vmx_alloc_vmcs(u32 cpu);
 int adjust_vmx_controls(u32 ctl_min, u32 ctl_opt, u32 msr, u32 *result);
+
