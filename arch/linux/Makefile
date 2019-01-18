@@ -7,6 +7,8 @@ kbuild:
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 
+rebuild: clean kbuild
+
 fmt:
 	find . -name "*.c" -o -name "*.h" | \
 		xargs clang-format -style=file -i
