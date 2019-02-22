@@ -230,6 +230,7 @@ static void __vmx_setup_cpu(void) {
 
 static void vmx_get_cpu(vmx_vcpu_t *vcpu) {
   int cur_cpu = get_cpu();
+  glog(KERN_INFO, "get_cpu");
 
   if ((vmx_vcpu_t *)__this_cpu_read(local_vcpu) != vcpu) {
     this_cpu_write(local_vcpu, vcpu);
@@ -245,6 +246,7 @@ static void vmx_get_cpu(vmx_vcpu_t *vcpu) {
       ept_sync_context(vcpu->eptp);
 
       vcpu->launched = 0;
+      glog(KERN_INFO, "fuckckckckckcck");
       vmcs_load(vcpu->vmcs);
       __vmx_setup_cpu();
       vcpu->cpu = cur_cpu;
@@ -503,8 +505,8 @@ static void inject_interrupt(int vector) {
     break;
 #define CASE8(i)                                                               \
   CASE(i + 0)                                                                  \
-  CASE(i + 1) CASE(i + 2) CASE(i + 3) CASE(i + 4) CASE(i + 5) CASE(i + 6)      \
-      CASE(i + 7)
+  CASE(i + 1)                                                                  \
+  CASE(i + 2) CASE(i + 3) CASE(i + 4) CASE(i + 5) CASE(i + 6) CASE(i + 7)
 #define CASE32(i) CASE8(i + 0) CASE8(i + 8) CASE8(i + 16) CASE8(i + 24)
 
   switch (vector) {
@@ -544,6 +546,281 @@ static void vmx_handle_interrupts(int ret, vmx_vcpu_t *vcpu) {
 static void vmx_step_instruction(void) {
   vmcs_writel(GUEST_RIP,
               vmcs_readl(GUEST_RIP) + vmcs_read32(VM_EXIT_INSTRUCTION_LEN));
+}
+
+static void vmx_handle_syscall(vmx_vcpu_t *vcpu) {
+  __u64 orig_rax;
+
+  pr_debug("vmx: %d: syscall %d(0x%llx,0x%llx,0x%llx,0x%llx,0x%llx,0x%llx) "
+           "from 0x%llx\n",
+           current->pid, (int)vcpu->regs[VCPU_REGS_RAX],
+           vcpu->regs[VCPU_REGS_RDI], vcpu->regs[VCPU_REGS_RSI],
+           vcpu->regs[VCPU_REGS_RDX], vcpu->regs[VCPU_REGS_R10],
+           vcpu->regs[VCPU_REGS_R8], vcpu->regs[VCPU_REGS_R9],
+           vcpu->regs[VCPU_REGS_RCX]);
+
+  if (unlikely(vcpu->regs[VCPU_REGS_RAX] > NUM_SYSCALLS)) {
+    vcpu->regs[VCPU_REGS_RAX] = -EINVAL;
+    return;
+  }
+
+  if (unlikely(vcpu->regs[VCPU_REGS_RAX] == __NR_sigaltstack ||
+               vcpu->regs[VCPU_REGS_RAX] == __NR_iopl)) {
+    printk(KERN_INFO "vmx: got unsupported syscall\n");
+    vcpu->regs[VCPU_REGS_RAX] = -EINVAL;
+    return;
+  }
+
+  orig_rax = vcpu->regs[VCPU_REGS_RAX];
+
+  asm("mov %c[rax](%0), %%"R"ax \n\t" "mov %c[rdi](%0), %%"R"di \n\t" "mov "
+                                                                      "%c[rsi]("
+                                                                      "%0), "
+                                                                      "%"
+                                                                      "%"R"si \n\t" "mov %c[rdx](%0), %%"R"dx \n\t" "mov %c[r8](%0),  %%r8  \n\t"
+                                                                                                                    "mov %c[r9](%0),  %%r9  \n\t"
+                                                                                                                    "mov %c[syscall](%0), %%r10 \n\t"
+                                                                                                                    "mov %0, %%r11 \n\t"
+                                                                                                                    "push %0 \n\t"
+                                                                                                                    "mov %c[r10](%0), %%"R"cx \n\t" "shl $3, %%rax \n\t"
+                                                                                                                                                    "add %%r10, %%rax\n\t"
+                                                                                                                                                    "call *(%%rax) \n\t"
+                                                                                                                                                    "pop %0 \n\t"
+                                                                                                                                                    "mov %%"R"ax, %c[rax](%0) \n\t"
+
+      :
+      : "c"(vcpu), [syscall] "i"(offsetof(vmx_vcpu_t, syscall_tbl)),
+        [rax] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_RAX])),
+        [rdi] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_RDI])),
+        [rsi] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_RSI])),
+        [rdx] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_RDX])),
+        [r10] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_R10])),
+        [r8] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_R8])),
+        [r9] "i"(offsetof(vmx_vcpu_t, regs[VCPU_REGS_R9]))
+      : "cc", "memory", R"ax", R"dx", R"di", R"si", "r8", "r9", "r10");
+
+  pr_debug("vmx: %d: syscall "
+           "%d(0x%llx,0x%llx,0x%llx,0x%llx,0x%llx,0x%llx)=0x%llx from 0x%llx\n",
+           current->pid, (int)orig_rax, vcpu->regs[VCPU_REGS_RDI],
+           vcpu->regs[VCPU_REGS_RSI], vcpu->regs[VCPU_REGS_RDX],
+           vcpu->regs[VCPU_REGS_R10], vcpu->regs[VCPU_REGS_R8],
+           vcpu->regs[VCPU_REGS_R9], vcpu->regs[VCPU_REGS_RAX],
+           vcpu->regs[VCPU_REGS_RCX]);
+
+  /* We apply the restart semantics as if no signal handler will be
+   * executed. */
+  switch (vcpu->regs[VCPU_REGS_RAX]) {
+  case -ERESTARTNOHAND:
+  case -ERESTARTSYS:
+  case -ERESTARTNOINTR:
+    vcpu->regs[VCPU_REGS_RAX] = orig_rax;
+    vmx_get_cpu(vcpu);
+    vmcs_writel(GUEST_RIP, vmcs_readl(GUEST_RIP) - 3);
+    vmx_put_cpu(vcpu);
+    break;
+  case -ERESTART_RESTARTBLOCK:
+    vcpu->regs[VCPU_REGS_RAX] = __NR_restart_syscall;
+    vmx_get_cpu(vcpu);
+    vmcs_writel(GUEST_RIP, vmcs_readl(GUEST_RIP) - 3);
+    vmx_put_cpu(vcpu);
+    break;
+  }
+}
+
+static int vmx_control_guest_ints(vmx_vcpu_t *vcpu, int enable) {
+  u32 min;
+  u32 opt;
+  u32 pin_based_exec_ctrl;
+
+  min = PIN_BASED_NMI_EXITING;
+  opt = PIN_BASED_VIRTUAL_NMIS;
+
+  if (!enable)
+    min |= PIN_BASED_EXT_INTR_MASK;
+
+  if (adjust_vmx_controls(min, opt, MSR_IA32_VMX_PINBASED_CTLS,
+                          &pin_based_exec_ctrl) < 0)
+    return -EIO;
+
+  vmx_get_cpu(vcpu);
+  vmcs_write32(PIN_BASED_VM_EXEC_CONTROL, pin_based_exec_ctrl);
+  vmx_put_cpu(vcpu);
+
+  return 0;
+}
+
+static void vmx_handle_vmcall(vmx_vcpu_t *vcpu) {
+  int ret;
+  int vmcall = vcpu->regs[VCPU_REGS_RAX];
+
+  switch (vmcall) {
+  case VMCALL_CONTROL_GUEST_INTS:
+    ret = vmx_control_guest_ints(vcpu, vcpu->regs[VCPU_REGS_RBX]);
+    if (ret)
+      printk(KERN_WARNING "vmx: control guest interrupts failed (%d)\n", ret);
+    break;
+  case VMCALL_INTERRUPT:
+    /* handled in vmx_launch */
+    break;
+  default:
+    printk(KERN_WARNING "vmx: unknown vmcall 0x%x\n", vmcall);
+    break;
+  }
+}
+
+static void vmx_handle_cpuid(vmx_vcpu_t *vcpu) {
+  unsigned int eax, ebx, ecx, edx;
+
+  eax = vcpu->regs[VCPU_REGS_RAX];
+  ecx = vcpu->regs[VCPU_REGS_RCX];
+  native_cpuid(&eax, &ebx, &ecx, &edx);
+  vcpu->regs[VCPU_REGS_RAX] = eax;
+  vcpu->regs[VCPU_REGS_RBX] = ebx;
+  vcpu->regs[VCPU_REGS_RCX] = ecx;
+  vcpu->regs[VCPU_REGS_RDX] = edx;
+}
+
+#define STACK_DEPTH 12
+
+static DEFINE_SPINLOCK(vmx_dump_cpu_lock);
+
+/**
+ * vmx_dump_cpu - prints the CPU state
+ * @vcpu: VCPU to print
+ */
+static void vmx_dump_cpu(vmx_vcpu_t *vcpu) {
+  unsigned long flags;
+  int i;
+  unsigned long *sp, val;
+
+  spin_lock(&vmx_dump_cpu_lock);
+
+  vmx_get_cpu(vcpu);
+  vcpu->regs[VCPU_REGS_RIP] = vmcs_readl(GUEST_RIP);
+  vcpu->regs[VCPU_REGS_RSP] = vmcs_readl(GUEST_RSP);
+  flags = vmcs_readl(GUEST_RFLAGS);
+  vmx_put_cpu(vcpu);
+
+  printk(KERN_INFO "vmx: --- Begin VCPU Dump ---\n");
+  printk(KERN_INFO "vmx: CPU %d VPID %d\n", vcpu->cpu, vcpu->vpid);
+  printk(KERN_INFO "vmx: RIP 0x%016llx RFLAGS 0x%08lx\n",
+         vcpu->regs[VCPU_REGS_RIP], flags);
+  printk(KERN_INFO "vmx: RAX 0x%016llx RCX 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_RAX], vcpu->regs[VCPU_REGS_RCX]);
+  printk(KERN_INFO "vmx: RDX 0x%016llx RBX 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_RDX], vcpu->regs[VCPU_REGS_RBX]);
+  printk(KERN_INFO "vmx: RSP 0x%016llx RBP 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_RSP], vcpu->regs[VCPU_REGS_RBP]);
+  printk(KERN_INFO "vmx: RSI 0x%016llx RDI 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_RSI], vcpu->regs[VCPU_REGS_RDI]);
+  printk(KERN_INFO "vmx: R8  0x%016llx R9  0x%016llx\n",
+         vcpu->regs[VCPU_REGS_R8], vcpu->regs[VCPU_REGS_R9]);
+  printk(KERN_INFO "vmx: R10 0x%016llx R11 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_R10], vcpu->regs[VCPU_REGS_R11]);
+  printk(KERN_INFO "vmx: R12 0x%016llx R13 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_R12], vcpu->regs[VCPU_REGS_R13]);
+  printk(KERN_INFO "vmx: R14 0x%016llx R15 0x%016llx\n",
+         vcpu->regs[VCPU_REGS_R14], vcpu->regs[VCPU_REGS_R15]);
+
+  printk(KERN_INFO "vmx: Dumping Stack Contents...\n");
+  sp = (unsigned long *)vcpu->regs[VCPU_REGS_RSP];
+  for (i = 0; i < STACK_DEPTH; i++)
+    if (get_user(val, &sp[i]))
+      printk(KERN_INFO "vmx: RSP%+-3ld ?\n", i * sizeof(long));
+    else
+      printk(KERN_INFO "vmx: RSP%+-3ld 0x%016lx\n", i * sizeof(long), val);
+
+  printk(KERN_INFO "vmx: --- End VCPU Dump ---\n");
+
+  spin_unlock(&vmx_dump_cpu_lock);
+}
+
+static int vmx_handle_ept_violation(vmx_vcpu_t *vcpu) {
+  unsigned long gva, gpa;
+  int exit_qual, ret;
+
+  vmx_get_cpu(vcpu);
+  exit_qual = vmcs_read32(EXIT_QUALIFICATION);
+  gva = vmcs_readl(GUEST_LINEAR_ADDRESS);
+  gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+  vmx_put_cpu(vcpu);
+
+  if (exit_qual & (1 << 6)) {
+    printk(KERN_ERR "EPT: GPA 0x%lx exceeds GAW!\n", gpa);
+    return -EINVAL;
+  }
+
+  if (!(exit_qual & (1 << 7))) {
+    printk(KERN_ERR "EPT: linear address is not valid, GPA: 0x%lx!\n", gpa);
+    return -EINVAL;
+  }
+
+  ret = vmx_do_ept_fault(vcpu, gpa, gva, exit_qual);
+
+  if (ret) {
+    printk(KERN_ERR "vmx: page fault failure "
+                    "GPA: 0x%lx, GVA: 0x%lx\n",
+           gpa, gva);
+    vcpu->ret_code = DUNE_RET_EPT_VIOLATION;
+    vmx_dump_cpu(vcpu);
+  }
+
+  return ret;
+}
+
+static int vmx_handle_nmi_exception(vmx_vcpu_t *vcpu) {
+  u32 intr_info;
+
+  vmx_get_cpu(vcpu);
+  intr_info = vmcs_read32(VM_EXIT_INTR_INFO);
+  vmx_put_cpu(vcpu);
+
+  if ((intr_info & INTR_INFO_INTR_TYPE_MASK) == INTR_TYPE_NMI_INTR)
+    return 0;
+
+  printk(KERN_ERR "vmx: got interrupt, intr_info %x\n", intr_info);
+  vcpu->ret_code = DUNE_RET_INTERRUPT;
+  vcpu->state->status = intr_info & INTR_INFO_VECTOR_MASK;
+  return -EIO;
+}
+
+static void __vmx_sync_helper(void *ptr) {
+  vmx_vcpu_t *vcpu = ptr;
+
+  ept_sync_context(vcpu->eptp);
+}
+
+struct sync_addr_args {
+  vmx_vcpu_t *vcpu;
+  gpa_t gpa;
+};
+
+static void __vmx_sync_individual_addr_helper(void *ptr) {
+  struct sync_addr_args *args = ptr;
+
+  ept_sync_individual_addr(args->vcpu->eptp, (args->gpa & ~(PAGE_SIZE - 1)));
+}
+
+/**
+ * vmx_ept_sync_global - used to evict everything in the EPT
+ * @vcpu: the vcpu
+ */
+void vmx_ept_sync_vcpu(vmx_vcpu_t *vcpu) {
+  smp_call_function_single(vcpu->cpu, __vmx_sync_helper, (void *)vcpu, 1);
+}
+
+/**
+ * vmx_ept_sync_individual_addr - used to evict an individual address
+ * @vcpu: the vcpu
+ * @gpa: the guest-physical address
+ */
+void vmx_ept_sync_individual_addr(vmx_vcpu_t *vcpu, gpa_t gpa) {
+  struct sync_addr_args args;
+  args.vcpu = vcpu;
+  args.gpa = gpa;
+
+  smp_call_function_single(vcpu->cpu, __vmx_sync_individual_addr_helper,
+                           (void *)&args, 1);
 }
 
 /**
@@ -683,6 +960,29 @@ int vmx_launch(vmx_state_t *conf, int64_t *ret_code) {
     }
 
     vmx_put_cpu(vcpu);
+
+    if (ret == EXIT_REASON_VMCALL && vcpu->regs[VCPU_REGS_RAX] < VMCALL_START)
+      vmx_handle_syscall(vcpu);
+
+    else if (ret == EXIT_REASON_VMCALL)
+      vmx_handle_vmcall(vcpu);
+
+    else if (ret == EXIT_REASON_CPUID)
+      vmx_handle_cpuid(vcpu);
+
+    else if (ret == EXIT_REASON_EPT_VIOLATION)
+      done = vmx_handle_ept_violation(vcpu); /* Here comes the core */
+
+    else if (ret == EXIT_REASON_EXCEPTION_NMI) {
+      if (vmx_handle_nmi_exception(vcpu))
+        done = 1;
+    } else if (ret != EXIT_REASON_EXTERNAL_INTERRUPT) {
+      printk(KERN_INFO "unhandled exit: reason %d, exit qualification %x\n",
+             ret, vmcs_read32(EXIT_QUALIFICATION));
+      vcpu->ret_code = DUNE_RET_UNHANDLED_VMEXIT;
+      vmx_dump_cpu(vcpu);
+      done = 1;
+    }
 
     if (done || vcpu->shutdown)
       break;

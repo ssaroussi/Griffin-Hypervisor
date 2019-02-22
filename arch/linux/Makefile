@@ -16,3 +16,4 @@ fmt:
 install: kbuild
 	-exec sudo -- rmmod $(MODULE_NAME) # Will continue even after a failure #
 	exec sudo -- insmod $(addsuffix .ko,$(MODULE_NAME))
+	dmesg | grep griffin --color=auto

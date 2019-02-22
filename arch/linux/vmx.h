@@ -1,3 +1,4 @@
+#include <asm/cpufeature.h>
 #include <asm/current.h>
 #include <asm/desc.h>
 #include <asm/desc_defs.h>
@@ -11,6 +12,7 @@
 #include <linux/mmu_notifier.h>
 #include <linux/module.h>
 #include <linux/sched/signal.h>
+#include <linux/spinlock_types.h>
 #include <linux/tboot.h>
 #include <linux/version.h>
 
@@ -59,6 +61,13 @@ enum vmx_reg {
 #define VMCALL_START 0x1000
 #define VMCALL_CONTROL_GUEST_INTS 0x1000
 #define VMCALL_INTERRUPT 0x1001
+#define NUM_SYSCALLS 312
+
+#define GPA_STACK_SIZE ((unsigned long)1 << 30) /* 1 gigabyte */
+#define GPA_MAP_SIZE                                                           \
+  (((unsigned long)1 << 36) - GPA_STACK_SIZE) /* 63 gigabytes */
+#define LG_ALIGN(addr) ((addr + (1 << 30) - 1) & ~((1 << 30) - 1))
+#define GPA_APIC_PAGE ((1ul << 46) - 4096)
 
 typedef struct VMX_STATE {
   __s64 ret;
@@ -148,6 +157,10 @@ __init bool allow_1_setting(u32 msr, u32 ctl);
 int vmx_launch(vmx_state_t *conf, int64_t *ret_code);
 vmx_vcpu_t *vmx_create_vcpu(vmx_state_t *state);
 inline void __vmxon(u64 addr);
+extern int vmx_do_ept_fault(vmx_vcpu_t *vcpu, unsigned long gpa,
+                            unsigned long gva, int fault_flags);
+extern void vmx_ept_sync_vcpu(vmx_vcpu_t *vcpu);
+extern void vmx_ept_sync_individual_addr(vmx_vcpu_t *vcpu, gpa_t gpa);
 
 extern vmx_capability_t vmx_capability;
 
