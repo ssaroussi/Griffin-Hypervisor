@@ -1,13 +1,18 @@
+#include <asm/current.h>
 #include <asm/desc.h>
 #include <asm/desc_defs.h>
 #include <asm/paravirt.h>
+#include <asm/perf_event.h>
 #include <asm/virtext.h>
 #include <linux/cpumask.h>
 #include <linux/gfp.h>
+#include <linux/irqflags.h>
 #include <linux/kvm_types.h>
 #include <linux/mmu_notifier.h>
 #include <linux/module.h>
+#include <linux/sched/signal.h>
 #include <linux/tboot.h>
+#include <linux/version.h>
 
 #include "util.h"
 
@@ -35,6 +40,25 @@ enum vmx_reg {
 };
 
 #define NR_AUTOLOAD_MSRS 8
+
+#define DUNE_RET_EXIT 1
+#define DUNE_RET_EPT_VIOLATION 2
+#define DUNE_RET_INTERRUPT 3
+#define DUNE_RET_SIGNAL 4
+#define DUNE_RET_UNHANDLED_VMEXIT 5
+#define DUNE_RET_NOENTER 6
+
+#ifdef CONFIG_X86_64
+#define R "r"
+#define Q "q"
+#else
+#define R "e"
+#define Q "l"
+#endif
+
+#define VMCALL_START 0x1000
+#define VMCALL_CONTROL_GUEST_INTS 0x1000
+#define VMCALL_INTERRUPT 0x1001
 
 typedef struct VMX_STATE {
   __s64 ret;
@@ -121,10 +145,11 @@ __init int init_vmx(void);
 __init int setup_vmcs_config(vmcs_config_t *vmcs_conf);
 __init bool allow_1_setting(u32 msr, u32 ctl);
 
+int vmx_launch(vmx_state_t *conf, int64_t *ret_code);
+vmx_vcpu_t *vmx_create_vcpu(vmx_state_t *state);
 inline void __vmxon(u64 addr);
 
 extern vmx_capability_t vmx_capability;
 
 vmcs_t *__vmx_alloc_vmcs(u32 cpu);
 int adjust_vmx_controls(u32 ctl_min, u32 ctl_opt, u32 msr, u32 *result);
-
